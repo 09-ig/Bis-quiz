@@ -10,12 +10,12 @@ import { getFirestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyAWiRraYB0C1XWkOGXfAnevxOhC7cScgSA",
-  authDomain: "academic-telemetry-hub.firebaseapp.com",
-  projectId: "academic-telemetry-hub",
-  storageBucket: "academic-telemetry-hub.firebasestorage.app",
-  messagingSenderId: "577675695648",
-  appId: "1:577675695648:web:c2e57fd265b3e0b23f0e45",
+  apiKey: "AIzaSyDJZ0aa9hJMFqA-lPxwGR5Ouc0Jb7VEnG0",
+  authDomain: "academic-quiz-26.firebaseapp.com",
+  projectId: "academic-quiz-26",
+  storageBucket: "academic-quiz-26.firebasestorage.app",
+  messagingSenderId: "372532334013",
+  appId: "1:372532334013:web:a8a787f8aed25fc585d6d4",
 };
 
 // Initialize Firebase

@@ -21,9 +21,21 @@ import {
   Send,
 } from "lucide-react";
 
+// Converts a stored ISO timestamp into the local "YYYY-MM-DDTHH:mm" value
+// expected by <input type="datetime-local">
+const isoToLocalInputValue = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 export default function AdminDashboard() {
   const [totalTime, setTotalTime] = useState(30);
   const [passingScore, setPassingScore] = useState(40);
+  const [examStartTime, setExamStartTime] = useState("");
+  const [examEndTime, setExamEndTime] = useState("");
 
   // Local sandboxed working memory pool (Draft Mode)
   const [questions, setQuestions] = useState([]);
@@ -60,8 +72,11 @@ export default function AdminDashboard() {
     try {
       const docSnap = await getDoc(doc(db, "settings", "config"));
       if (docSnap.exists()) {
-        setTotalTime(docSnap.data().totalTimeAllowed || 30);
-        setPassingScore(docSnap.data().passingThreshold || 40);
+        const data = docSnap.data();
+        setTotalTime(data.totalTimeAllowed || 30);
+        setPassingScore(data.passingThreshold || 40);
+        setExamStartTime(isoToLocalInputValue(data.examStartTime));
+        setExamEndTime(isoToLocalInputValue(data.examEndTime));
       }
     } catch (err) {
       console.error("Error reading configuration settings:", err);
@@ -82,9 +97,19 @@ export default function AdminDashboard() {
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
+
+    const startIso = examStartTime ? new Date(examStartTime).toISOString() : "";
+    const endIso = examEndTime ? new Date(examEndTime).toISOString() : "";
+
+    if (startIso && endIso && new Date(endIso) <= new Date(startIso)) {
+      return alert("Close time must be after the open time.");
+    }
+
     await setDoc(doc(db, "settings", "config"), {
       totalTimeAllowed: parseInt(totalTime),
       passingThreshold: parseInt(passingScore),
+      examStartTime: startIso,
+      examEndTime: endIso,
     });
     alert("Global configurations updated.");
   };
@@ -317,6 +342,32 @@ export default function AdminDashboard() {
                   onChange={(e) => setPassingScore(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs outline-none focus:border-blue-500 text-slate-800"
                 />
+              </div>
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Quiz Opens At
+                </label>
+                <input
+                  type="datetime-local"
+                  value={examStartTime}
+                  onChange={(e) => setExamStartTime(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs outline-none focus:border-blue-500 text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Quiz Closes At
+                </label>
+                <input
+                  type="datetime-local"
+                  value={examEndTime}
+                  onChange={(e) => setExamEndTime(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs outline-none focus:border-blue-500 text-slate-800"
+                />
+                <p className="text-[9px] text-slate-400 mt-1 leading-relaxed">
+                  Students can only enter the exam between these two times.
+                  Leave both blank to allow access at any time.
+                </p>
               </div>
               <button
                 type="submit"

@@ -19,6 +19,8 @@ export default function StudentDashboard({ user }) {
   const [onboarded, setOnboarded] = useState(false);
 
   const [config, setConfig] = useState({ totalTimeAllowed: 30 });
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
   const [questions, setQuestions] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [completed, setCompleted] = useState(false);
@@ -54,11 +56,17 @@ export default function StudentDashboard({ user }) {
     else if (element.msRequestFullscreen) element.msRequestFullscreen();
   };
 
-  // Automated Trigger: Fires the moment onboarding finishes
+  // Grace window after entering (or re-entering) fullscreen during which the
+  // security poller won't flag a violation, since requestFullscreen()'s
+  // transition isn't instantaneous
+  const graceUntilRef = useRef(0);
+
+  // Marks the grace window whenever onboarding finishes (actual fullscreen
+  // request now happens directly inside the "Start Test" click handler, so
+  // it stays inside the user-gesture context browsers require)
   useEffect(() => {
     if (onboarded && !completed) {
-      const timer = setTimeout(() => enterFullscreen(), 150);
-      return () => clearTimeout(timer);
+      graceUntilRef.current = Date.now() + 2000;
     }
   }, [onboarded, completed]);
 
@@ -67,6 +75,8 @@ export default function StudentDashboard({ user }) {
     if (!onboarded || completed) return;
 
     const enforceSecurityLock = () => {
+      if (Date.now() < graceUntilRef.current) return;
+
       const isNotFullscreen =
         !document.fullscreenElement &&
         !document.webkitFullscreenElement &&
@@ -136,6 +146,7 @@ export default function StudentDashboard({ user }) {
     if (violationCount < 3) {
       setShowWarning(false);
       enterFullscreen();
+      graceUntilRef.current = Date.now() + 2000;
     }
   };
 
@@ -213,6 +224,35 @@ export default function StudentDashboard({ user }) {
     initializeExamConfig();
   }, []);
 
+  // Ticks once a second so the pre-exam gate screen can auto-transition
+  // (opens / closes) without the student needing to refresh the page
+  useEffect(() => {
+    if (onboarded) return;
+    const tickTimer = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(tickTimer);
+  }, [onboarded]);
+
+  const windowStatus = (() => {
+    if (!configLoaded) return "checking";
+    const start = config.examStartTime
+      ? new Date(config.examStartTime).getTime()
+      : null;
+    const end = config.examEndTime
+      ? new Date(config.examEndTime).getTime()
+      : null;
+    if (start && nowTick < start) return "not_started";
+    if (end && nowTick >= end) return "closed";
+    return "open";
+  })();
+
+  const formatWindowTime = (iso) => {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  };
+
   useEffect(() => {
     if (onboarded && questions.length > 0 && !completed) {
       countdownTimer.current = setInterval(() => {
@@ -242,6 +282,7 @@ export default function StudentDashboard({ user }) {
       setConfig(configSnap.data());
       setTimeLeft(configSnap.data().totalTimeAllowed * 60);
     }
+    setConfigLoaded(true);
     const qSnap = await getDocs(collection(db, "questions"));
     const items = qSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setQuestions(items);
@@ -366,8 +407,76 @@ export default function StudentDashboard({ user }) {
 
   const handleOnboardSubmit = (e) => {
     e.preventDefault();
-    if (college.trim() && cgpa) setOnboarded(true);
+    if (college.trim() && cgpa) {
+      enterFullscreen();
+      setOnboarded(true);
+    }
   };
+
+  if (!onboarded && windowStatus === "checking") {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-3">
+        <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!onboarded && windowStatus === "not_started") {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-center">
+        <div className="max-w-md bg-white border border-slate-200 rounded-xl p-8 space-y-4 shadow-sm">
+          <Timer className="w-12 h-12 text-blue-500 mx-auto" />
+          <h2 className="text-base font-bold text-slate-800 uppercase tracking-wide">
+            Test Not Yet Open
+          </h2>
+          <p className="text-xs text-slate-500 leading-relaxed font-medium">
+            This assessment will become available on{" "}
+            <span className="font-bold text-slate-700">
+              {formatWindowTime(config.examStartTime)}
+            </span>
+            . Please check back at that time — this page will unlock
+            automatically.
+          </p>
+          <div className="pt-2">
+            <button
+              onClick={() => auth.signOut()}
+              className="bg-slate-800 hover:bg-slate-900 text-white text-xs px-5 py-2 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
+            >
+              Log Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!onboarded && windowStatus === "closed") {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-center">
+        <div className="max-w-md bg-white border border-slate-200 rounded-xl p-8 space-y-4 shadow-sm">
+          <Timer className="w-12 h-12 text-rose-500 mx-auto" />
+          <h2 className="text-base font-bold text-slate-800 uppercase tracking-wide">
+            Test Window Closed
+          </h2>
+          <p className="text-xs text-slate-500 leading-relaxed font-medium">
+            The submission window for this assessment closed on{" "}
+            <span className="font-bold text-slate-700">
+              {formatWindowTime(config.examEndTime)}
+            </span>
+            . Contact your administrator if you believe this is an error.
+          </p>
+          <div className="pt-2">
+            <button
+              onClick={() => auth.signOut()}
+              className="bg-slate-800 hover:bg-slate-900 text-white text-xs px-5 py-2 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
+            >
+              Log Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!onboarded) {
     return (

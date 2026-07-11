@@ -14,6 +14,7 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setLoading(true);
       if (currentUser) {
         setUser(currentUser);
         try {
@@ -37,7 +38,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  if (loading) {
+  if (loading || (user && role === null)) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center font-sans text-slate-700 gap-3">
         <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
