@@ -36,7 +36,7 @@ async function generateMasterMLDataset() {
       { header: "attempt_id", key: "attempt_id", width: 25 },
       { header: "student_uid", key: "student_uid", width: 28 },
       { header: "student_cgpa", key: "student_cgpa", width: 15 },
-      { header: "institution", key: "institution", width: 30 },
+      { header: "roll_number", key: "roll_number", width: 30 },
       { header: "correct_percentage", key: "correct_percentage", width: 18 },
       {
         header: "time_remaining_at_submission",
@@ -68,7 +68,7 @@ async function generateMasterMLDataset() {
       const studentUid = data.studentUid || "Unknown";
       const studentCgpa =
         data.studentCgpa !== undefined ? data.studentCgpa : null;
-      const institution = data.institution || "Unknown";
+      const rollNumber = data.rollNumber || "Unknown";
       const correctPercentage =
         data.correctPercentage !== undefined ? data.correctPercentage : 0;
       const timeRemaining =
@@ -87,7 +87,7 @@ async function generateMasterMLDataset() {
             attempt_id: attemptId,
             student_uid: studentUid,
             student_cgpa: studentCgpa,
-            institution: institution,
+            roll_number: rollNumber,
             correct_percentage: correctPercentage,
             time_remaining_at_submission: timeRemaining,
             timestamp: timestamp,

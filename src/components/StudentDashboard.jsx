@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 export default function StudentDashboard({ user }) {
-  const [college, setCollege] = useState("");
+  const [rollNo, setRollNo] = useState("");
   const [cgpa, setCgpa] = useState("");
   const [onboarded, setOnboarded] = useState(false);
 
@@ -384,7 +384,7 @@ export default function StudentDashboard({ user }) {
     });
 
     return {
-      institution: college,
+      rollNumber: rollNo,
       studentCgpa: parseFloat(cgpa),
       studentUid: user.uid,
       correctPercentage:
@@ -407,7 +407,7 @@ export default function StudentDashboard({ user }) {
 
   const handleOnboardSubmit = (e) => {
     e.preventDefault();
-    if (college.trim() && cgpa) {
+    if (rollNo.trim() && cgpa) {
       enterFullscreen();
       setOnboarded(true);
     }
@@ -489,15 +489,15 @@ export default function StudentDashboard({ user }) {
           <form onSubmit={handleOnboardSubmit} className="space-y-4">
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Full Institution Affiliation
+                Roll Number
               </label>
               <input
                 type="text"
                 required
-                value={college}
-                onChange={(e) => setCollege(e.target.value)}
+                value={rollNo}
+                onChange={(e) => setRollNo(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
-                placeholder="e.g., IIT Madras"
+                placeholder="e.g., 102103001"
               />
             </div>
             <div>
