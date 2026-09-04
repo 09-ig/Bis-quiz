@@ -1058,9 +1058,7 @@ export default function StudentDashboard({ user }) {
           reviewTimesMap={{ ...reviewTimesMapRef.current }}
           visited={visited}
           onClose={() => setIsSubmitModalOpen(false)}
-          onSubmitConfirm={async (word) => {
-            if (word !== "SUBMIT") return;
-
+          onSubmitConfirm={async () => {
             const payload = compileSubmissionPayload(timeLeft);
             try {
               await saveAttempt(payload);

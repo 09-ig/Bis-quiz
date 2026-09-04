@@ -10,7 +10,6 @@ export default function SubmissionModal({
   onClose,
   onSubmitConfirm,
 }) {
-  const [inputLock, setInputLock] = useState("");
   const [executing, setExecuting] = useState(false);
 
   const attempted = questions.filter((q) => answers[q.id]).length;
@@ -27,11 +26,11 @@ export default function SubmissionModal({
 
   const handleFinalConfirm = async (e) => {
     e.preventDefault();
-    if (inputLock !== "SUBMIT" || executing) return;
+    if (executing) return;
 
     try {
       setExecuting(true);
-      await onSubmitConfirm("SUBMIT");
+      await onSubmitConfirm();
     } catch (err) {
       console.error("Modal execution fault:", err);
     } finally {
@@ -90,22 +89,14 @@ export default function SubmissionModal({
             </div>
           </div>
 
-          {/* VERIFICATION BAR */}
+          {/* CONFIRMATION BAR */}
           <form onSubmit={handleFinalConfirm} className="space-y-3 pt-1">
-            <div>
-              <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">
-                Security Lock Verification
-              </label>
-              <input
-                type="text"
-                required
-                value={inputLock}
-                onChange={(e) => setInputLock(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:bg-white rounded-lg p-2 text-center text-xs tracking-widest font-mono font-bold uppercase outline-none transition text-rose-600 placeholder:text-slate-400 placeholder:tracking-normal placeholder:font-sans placeholder:font-normal"
-                placeholder='Type "SUBMIT" to confirm'
-                disabled={executing}
-              />
-            </div>
+            <p className="text-center text-slate-700 font-bold text-sm py-1">
+              Are you sure you want to submit?
+            </p>
+            <p className="text-center text-[10px] text-slate-400 font-medium -mt-2">
+              This cannot be undone, and you cannot retake this subject.
+            </p>
 
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
@@ -114,14 +105,14 @@ export default function SubmissionModal({
                 disabled={executing}
                 className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 font-bold py-2 rounded-lg text-xs tracking-wide transition uppercase text-center"
               >
-                Cancel
+                No, Go Back
               </button>
               <button
                 type="submit"
-                disabled={inputLock !== "SUBMIT" || executing}
+                disabled={executing}
                 className="bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-30 disabled:pointer-events-none font-bold py-2 rounded-lg text-xs tracking-wider transition uppercase shadow-sm text-center"
               >
-                {executing ? "Sealing..." : "Seal & Submit"}
+                {executing ? "Submitting..." : "Yes, Submit"}
               </button>
             </div>
           </form>

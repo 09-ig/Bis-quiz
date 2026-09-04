@@ -1,4 +1,15 @@
-import { db } from "./firebase.js";
+// Browser-side CSV dump, kept out of src/ on purpose: it is NOT imported by the
+// app and nothing renders a button for it. The index.html buttons that used to
+// call these were dead (this module's exports were never attached to window) and
+// would have been visible to students on the shared link.
+//
+// The maintained export path is ../data-export-utility.js — `node
+// data-export-utility.js` from the repo root, which needs serviceAccountKey.json
+// and writes the full multi-sheet Quiz_Attempts_Report.xlsx.
+//
+// To use this one instead, import it from a module the app actually builds and
+// call it while signed in as an admin.
+import { db } from "../src/config/firebase.js";
 import { collection, getDocs } from "firebase/firestore";
 
 // Helper function to convert JSON to CSV and trigger download in browser
@@ -8,8 +19,10 @@ function downloadCSV(dataArray, filename) {
     return;
   }
 
-  // Get CSV Headers (fields) from the first object
-  const headers = Object.keys(dataArray[0]);
+  // Union of keys across every row, not just the first: pre-multi-college
+  // attempts have no collegeId/subjectId, so keying off row 0 would silently
+  // drop those columns for the whole file if an old row happened to come first.
+  const headers = [...new Set(dataArray.flatMap((row) => Object.keys(row)))];
   const csvRows = [headers.join(",")]; // Add header row
 
   // Map each document to a CSV line
