@@ -1,0 +1,72 @@
+rules_version = '2';
+
+// NOT wired into firebase.json on purpose — review these against whatever is
+// currently live in the console, then apply with:
+//   firebase deploy --only firestore:rules
+// Deploying rules that are stricter than your current ones will break the app
+// immediately if anything here doesn't match how you actually use it, so read
+// before you ship.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // A student may read and create their own profile, but must never be able
+    // to write role:'admin' onto it.
+    match /users/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow create: if signedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.role == 'student';
+      allow update, delete: if isAdmin();
+    }
+
+    // Registry: every signed-in student needs to read these to populate the
+    // college and subject dropdowns. Only the admin may change them.
+    match /colleges/{collegeId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /subjects/{subjectId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // NOTE: question documents include `correctAnswer`, so a determined student
+    // can read the key straight off the network. That is unchanged from the
+    // original single-college build; closing it properly needs the answers held
+    // server-side and grading done there (a job for the AWS API in infra/).
+    match /questions/{questionId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // One attempt per (student, subject). The document id IS that pair, so this
+    // rule set makes the lock real: a student can create their own attempt once
+    // and can never update or delete it afterwards.
+    match /quiz_attempts/{attemptId} {
+      // `get` is keyed off the document id, not resource.data: the app checks
+      // "have I already sat this subject?" against an id that usually does NOT
+      // exist yet, and a nonexistent doc has no resource to inspect.
+      allow get: if isAdmin()
+                 || (signedIn() && attemptId.split('__')[0] == request.auth.uid);
+      // `list` only ever runs as: where studentUid == <my uid>.
+      allow list: if isAdmin()
+                  || (signedIn() && resource.data.studentUid == request.auth.uid);
+      allow create: if signedIn()
+                    && attemptId == request.auth.uid + '__' + request.resource.data.subjectId
+                    && request.resource.data.studentUid == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+  }
+}

@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
-import { collection, doc, getDoc, getDocs, addDoc } from "firebase/firestore";
-import { auth, db } from "../config/firebase";
+import { auth } from "../config/firebase";
+import {
+  DEFAULT_SUBJECT_SETTINGS,
+  fetchAttemptedSubjectIds,
+  fetchColleges,
+  fetchQuestionsForSubject,
+  fetchSubjects,
+  hasAttempted,
+  saveAttempt,
+  subjectWindowStatus,
+} from "../services/quizData";
 import SubmissionModal from "./SubmissionModal";
 import {
   Timer,
@@ -14,13 +23,23 @@ import {
 } from "lucide-react";
 
 export default function StudentDashboard({ user }) {
-  const [rollNo, setRollNo] = useState("");
+  // --- Candidate identity + quiz scope (chosen on the shared entry link) ---
+  const [fullName, setFullName] = useState("");
+  const [studentId, setStudentId] = useState("");
   const [cgpa, setCgpa] = useState("");
+  const [collegeId, setCollegeId] = useState("");
+  const [subjectId, setSubjectId] = useState("");
+
+  const [colleges, setColleges] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [attemptedSubjectIds, setAttemptedSubjectIds] = useState(new Set());
+  const [pickerLoading, setPickerLoading] = useState(true);
+  const [startError, setStartError] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
+
   const [onboarded, setOnboarded] = useState(false);
 
-  const [config, setConfig] = useState({ totalTimeAllowed: 30 });
-  const [configLoaded, setConfigLoaded] = useState(false);
-  const [nowTick, setNowTick] = useState(Date.now());
   const [questions, setQuestions] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [completed, setCompleted] = useState(false);
@@ -30,7 +49,9 @@ export default function StudentDashboard({ user }) {
   const [confidence, setConfidence] = useState({});
   const [reviews, setReviews] = useState({});
   const [visited, setVisited] = useState({});
-  const [timeLeft, setTimeLeft] = useState(1800);
+  const [timeLeft, setTimeLeft] = useState(
+    DEFAULT_SUBJECT_SETTINGS.totalTimeAllowed * 60,
+  );
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
 
   // REAL-TIME ENGINE CORRECTIONS: Persistent references tracking metrics outside of closures
@@ -54,6 +75,12 @@ export default function StudentDashboard({ user }) {
     else if (element.mozRequestFullScreen) element.mozRequestFullScreen();
     else if (element.webkitRequestFullscreen) element.webkitRequestFullscreen();
     else if (element.msRequestFullscreen) element.msRequestFullscreen();
+  };
+
+  const exitFullscreenQuietly = () => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
   };
 
   // Grace window after entering (or re-entering) fullscreen during which the
@@ -117,9 +144,9 @@ export default function StudentDashboard({ user }) {
         );
 
         // Compile and sync the student data payload vector up to this exact moment
-        const payload = compileSubmissionPayload(timeLeft);
+        const payload = compileSubmissionPayload(timeLeft, "auto_terminated");
         try {
-          await addDoc(collection(db, "quiz_attempts"), payload);
+          await saveAttempt(payload);
         } catch (err) {
           console.error(
             "Auto-submission cloud pipeline log failure:",
@@ -220,38 +247,73 @@ export default function StudentDashboard({ user }) {
   }, [onboarded, completed]);
   // 🔼 END OF PRODUCTION-GRADE ANTI-CHEAT ENGINE 🔼
 
+  // --- Picker bootstrap: one shared link, so the student self-selects scope ---
   useEffect(() => {
-    initializeExamConfig();
-  }, []);
+    let cancelled = false;
+    (async () => {
+      // Settled, not all: the prior-attempts lookup is only a convenience for
+      // greying out finished subjects. If Firestore rules block that query it
+      // must not take the college dropdown down with it — handleOnboardSubmit
+      // re-checks with a direct get() before letting anyone start.
+      const [collegeResult, attemptResult] = await Promise.allSettled([
+        fetchColleges({ activeOnly: true }),
+        fetchAttemptedSubjectIds(user.uid),
+      ]);
+      if (cancelled) return;
 
-  // Ticks once a second so the pre-exam gate screen can auto-transition
+      if (collegeResult.status === "fulfilled") {
+        setColleges(collegeResult.value);
+      } else {
+        console.error(
+          "Failed to load institution registry:",
+          collegeResult.reason,
+        );
+        setStartError(
+          "Could not load the institution list. Refresh and try again.",
+        );
+      }
+
+      if (attemptResult.status === "fulfilled") {
+        setAttemptedSubjectIds(attemptResult.value);
+      } else {
+        console.warn("Prior-attempt lookup unavailable:", attemptResult.reason);
+      }
+
+      setPickerLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user.uid]);
+
+  // Subject list is scoped to the chosen college
+  useEffect(() => {
+    let cancelled = false;
+    setSubjectId("");
+    if (!collegeId) {
+      setSubjects([]);
+      return;
+    }
+    (async () => {
+      try {
+        const list = await fetchSubjects(collegeId, { activeOnly: true });
+        if (!cancelled) setSubjects(list);
+      } catch (err) {
+        console.error("Failed to load subject list:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [collegeId]);
+
+  // Ticks once a second so the picker's window notice can auto-transition
   // (opens / closes) without the student needing to refresh the page
   useEffect(() => {
     if (onboarded) return;
     const tickTimer = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(tickTimer);
   }, [onboarded]);
-
-  const windowStatus = (() => {
-    if (!configLoaded) return "checking";
-    const start = config.examStartTime
-      ? new Date(config.examStartTime).getTime()
-      : null;
-    const end = config.examEndTime
-      ? new Date(config.examEndTime).getTime()
-      : null;
-    if (start && nowTick < start) return "not_started";
-    if (end && nowTick >= end) return "closed";
-    return "open";
-  })();
-
-  const formatWindowTime = (iso) => {
-    if (!iso) return "";
-    return new Date(iso).toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  };
 
   useEffect(() => {
     if (onboarded && questions.length > 0 && !completed) {
@@ -275,19 +337,6 @@ export default function StudentDashboard({ user }) {
       clearInterval(focusTimer.current);
     };
   }, [onboarded, currentIdx, questions, completed]);
-
-  const initializeExamConfig = async () => {
-    const configSnap = await getDoc(doc(db, "settings", "config"));
-    if (configSnap.exists()) {
-      setConfig(configSnap.data());
-      setTimeLeft(configSnap.data().totalTimeAllowed * 60);
-    }
-    setConfigLoaded(true);
-    const qSnap = await getDocs(collection(db, "questions"));
-    const items = qSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    setQuestions(items);
-    if (items.length > 0) setVisited({ [items[0].id]: true });
-  };
 
   const syncActiveTelemetry = () => {
     if (questions.length === 0) return;
@@ -359,7 +408,24 @@ export default function StudentDashboard({ user }) {
     return `${m}:${s}`;
   };
 
-  const compileSubmissionPayload = (timeRemaining) => {
+  const formatWindowTime = (iso) => {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  };
+
+  const selectedCollege = colleges.find((c) => c.id === collegeId);
+  const selectedSubject = subjects.find((s) => s.id === subjectId);
+
+  // The entry window now lives on the subject, so it is evaluated per paper
+  // rather than once globally.
+  const windowStatus = selectedSubject
+    ? subjectWindowStatus(selectedSubject, nowTick)
+    : "open";
+
+  const compileSubmissionPayload = (timeRemaining, status = "submitted") => {
     syncActiveTelemetry();
 
     let correctCount = 0;
@@ -384,11 +450,27 @@ export default function StudentDashboard({ user }) {
     });
 
     return {
-      rollNumber: rollNo,
-      studentCgpa: parseFloat(cgpa),
+      collegeId,
+      collegeName: selectedCollege?.name || "",
+      subjectId,
+      subjectName: selectedSubject?.name || "",
+      // Retained under the original key so the existing export pipeline and any
+      // already-collected Thapar rows stay column-compatible.
+      institution: selectedCollege?.name || "",
       studentUid: user.uid,
+      studentName: fullName.trim(),
+      studentRollNumber: studentId.trim(),
+      // Original single-college key, still written so exports and any downstream
+      // analysis keyed on `rollNumber` keep resolving for new rows too.
+      rollNumber: studentId.trim(),
+      studentEmail: user.email || "",
+      studentCgpa: parseFloat(cgpa),
+      submissionStatus: status,
+      totalQuestions: questions.length,
       correctPercentage:
-        Math.round((correctCount / questions.length) * 10000) / 100,
+        questions.length > 0
+          ? Math.round((correctCount / questions.length) * 10000) / 100
+          : 0,
       timeRemainingAtSubmission: Number(timeRemaining),
       timestamp: new Date().toISOString(),
       behavioralMetrics: trackingMetrics,
@@ -396,89 +478,116 @@ export default function StudentDashboard({ user }) {
   };
 
   const forceAutoSubmission = async () => {
-    const payload = compileSubmissionPayload(0);
+    const payload = compileSubmissionPayload(0, "time_expired");
     try {
-      await addDoc(collection(db, "quiz_attempts"), payload);
+      await saveAttempt(payload);
       setCompleted(true);
     } catch (err) {
       console.error("Auto submission error:", err);
     }
   };
 
-  const handleOnboardSubmit = (e) => {
+  const handleOnboardSubmit = async (e) => {
     e.preventDefault();
-    if (rollNo.trim() && cgpa) {
-      enterFullscreen();
+    setStartError("");
+
+    if (!fullName.trim() || !studentId.trim() || !collegeId || !subjectId) {
+      setStartError("Complete every field before starting.");
+      return;
+    }
+
+    // Window check runs before anything async so we never take the screen over
+    // for a sitting that cannot begin.
+    const status = subjectWindowStatus(selectedSubject, Date.now());
+    if (status === "not_started") {
+      setStartError(
+        `This paper opens on ${formatWindowTime(selectedSubject.examStartTime)}. This page unlocks automatically at that time.`,
+      );
+      return;
+    }
+    if (status === "closed") {
+      setStartError(
+        `The submission window for this paper closed on ${formatWindowTime(selectedSubject.examEndTime)}. Contact your administrator if you believe this is an error.`,
+      );
+      return;
+    }
+
+    // requestFullscreen() only works inside the click's user-gesture context, so
+    // it fires here rather than from an effect after the awaits below.
+    enterFullscreen();
+    graceUntilRef.current = Date.now() + 2000;
+
+    setStarting(true);
+    try {
+      // Re-check at the last moment: the picker list could be stale if the
+      // student left this tab open across another sitting.
+      if (await hasAttempted(user.uid, subjectId)) {
+        setAttemptedSubjectIds((prev) => new Set(prev).add(subjectId));
+        setStartError(
+          "You have already submitted this subject. Pick a different one.",
+        );
+        exitFullscreenQuietly();
+        return;
+      }
+
+      const subjectQuestions = await fetchQuestionsForSubject(subjectId);
+
+      if (subjectQuestions.length === 0) {
+        setStartError(
+          "No questions have been published for this subject yet. Contact the administrator.",
+        );
+        exitFullscreenQuietly();
+        return;
+      }
+
+      const minutes =
+        Number(selectedSubject?.totalTimeAllowed) ||
+        DEFAULT_SUBJECT_SETTINGS.totalTimeAllowed;
+
+      setQuestions(subjectQuestions);
+      setTimeLeft(minutes * 60);
+      setVisited({ [subjectQuestions[0].id]: true });
+      setCurrentIdx(0);
       setOnboarded(true);
+    } catch (err) {
+      console.error("Exam initialization failure:", err);
+      setStartError("Could not start the test: " + err.message);
+      exitFullscreenQuietly();
+    } finally {
+      setStarting(false);
     }
   };
 
-  if (!onboarded && windowStatus === "checking") {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-3">
-        <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (!onboarded && windowStatus === "not_started") {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-center">
-        <div className="max-w-md bg-white border border-slate-200 rounded-xl p-8 space-y-4 shadow-sm">
-          <Timer className="w-12 h-12 text-blue-500 mx-auto" />
-          <h2 className="text-base font-bold text-slate-800 uppercase tracking-wide">
-            Test Not Yet Open
-          </h2>
-          <p className="text-xs text-slate-500 leading-relaxed font-medium">
-            This assessment will become available on{" "}
-            <span className="font-bold text-slate-700">
-              {formatWindowTime(config.examStartTime)}
-            </span>
-            . Please check back at that time — this page will unlock
-            automatically.
-          </p>
-          <div className="pt-2">
-            <button
-              onClick={() => auth.signOut()}
-              className="bg-slate-800 hover:bg-slate-900 text-white text-xs px-5 py-2 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
-            >
-              Log Out
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!onboarded && windowStatus === "closed") {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-center">
-        <div className="max-w-md bg-white border border-slate-200 rounded-xl p-8 space-y-4 shadow-sm">
-          <Timer className="w-12 h-12 text-rose-500 mx-auto" />
-          <h2 className="text-base font-bold text-slate-800 uppercase tracking-wide">
-            Test Window Closed
-          </h2>
-          <p className="text-xs text-slate-500 leading-relaxed font-medium">
-            The submission window for this assessment closed on{" "}
-            <span className="font-bold text-slate-700">
-              {formatWindowTime(config.examEndTime)}
-            </span>
-            . Contact your administrator if you believe this is an error.
-          </p>
-          <div className="pt-2">
-            <button
-              onClick={() => auth.signOut()}
-              className="bg-slate-800 hover:bg-slate-900 text-white text-xs px-5 py-2 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
-            >
-              Log Out
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Return to the picker so a student can sit a different subject. Every
+  // per-attempt ref has to be cleared or telemetry bleeds across sittings.
+  const startAnotherSubject = () => {
+    setAttemptedSubjectIds((prev) => new Set(prev).add(subjectId));
+    setSubjectId("");
+    setOnboarded(false);
+    setCompleted(false);
+    setQuestions([]);
+    setCurrentIdx(0);
+    setAnswers({});
+    setConfidence({});
+    setReviews({});
+    setVisited({});
+    setViolationCount(0);
+    setShowWarning(false);
+    setIsSubmitModalOpen(false);
+    setStartError("");
+    activeSecsRef.current = 0;
+    timeSpentMapRef.current = {};
+    optionChangesRef.current = {};
+    reviewTimesMapRef.current = {};
+    confidenceRef.current = {};
+  };
 
   if (!onboarded) {
+    const remainingSubjects = subjects.filter(
+      (s) => !attemptedSubjectIds.has(s.id),
+    );
+    const windowBlocked = Boolean(selectedSubject) && windowStatus !== "open";
+
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl p-6 space-y-5 shadow-sm">
@@ -486,52 +595,187 @@ export default function StudentDashboard({ user }) {
             <GraduationCap className="w-5 h-5 text-blue-600" /> Candidate
             Verification
           </div>
-          <form onSubmit={handleOnboardSubmit} className="space-y-4">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Roll Number
-              </label>
-              <input
-                type="text"
-                required
-                value={rollNo}
-                onChange={(e) => setRollNo(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
-                placeholder="e.g., 102103001"
-              />
+
+          {pickerLoading ? (
+            <div className="py-10 flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Loading institution registry
+              </span>
             </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Current Cumulative CGPA (0.00 - 10.00)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="10"
-                required
-                value={cgpa}
-                onChange={(e) => setCgpa(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
-                placeholder="e.g., 9.12"
-              />
-            </div>
-            <div className="space-y-2 pt-2">
-              <button
-                type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition uppercase shadow-sm"
-              >
-                Start Test
-              </button>
-              <button
-                type="button"
-                onClick={() => auth.signOut()}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2.5 rounded-lg text-xs tracking-wider transition uppercase text-center border border-slate-200/40"
-              >
-                ◀ Cancel & Go Back
-              </button>
-            </div>
-          </form>
+          ) : (
+            <form onSubmit={handleOnboardSubmit} className="space-y-4">
+              {startError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-[11px] p-2.5 rounded-lg font-medium">
+                  {startError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
+                  placeholder="e.g., Ishita Gupta"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Student ID / Roll Number
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={studentId}
+                  onChange={(e) => setStudentId(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
+                  placeholder="e.g., 102103045"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Registered Email
+                </label>
+                <input
+                  type="email"
+                  value={user.email || ""}
+                  readOnly
+                  className="w-full bg-slate-100 border border-slate-200 rounded-lg p-2.5 text-xs text-slate-500 outline-none cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Institution
+                </label>
+                <select
+                  required
+                  value={collegeId}
+                  onChange={(e) => setCollegeId(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
+                >
+                  <option value="">Select your college...</option>
+                  {colleges.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                {colleges.length === 0 && (
+                  <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                    No institutions are open right now. Contact the
+                    administrator.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Subject
+                </label>
+                <select
+                  required
+                  value={subjectId}
+                  disabled={!collegeId}
+                  onChange={(e) => setSubjectId(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <option value="">
+                    {collegeId
+                      ? "Select the subject quiz..."
+                      : "Select an institution first"}
+                  </option>
+                  {subjects.map((s) => {
+                    const done = attemptedSubjectIds.has(s.id);
+                    return (
+                      <option key={s.id} value={s.id} disabled={done}>
+                        {s.name}
+                        {done ? " — already submitted" : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+                {collegeId && remainingSubjects.length === 0 && (
+                  <p className="text-[10px] text-amber-600 font-semibold mt-1">
+                    {subjects.length === 0
+                      ? "No subjects published for this institution yet."
+                      : "You have completed every subject offered here."}
+                  </p>
+                )}
+
+                {/* Per-subject entry window notice — auto-unlocks on the tick */}
+                {selectedSubject && windowStatus === "not_started" && (
+                  <p className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg p-2 mt-1.5 font-semibold leading-relaxed">
+                    <Timer className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+                    This paper opens on{" "}
+                    {formatWindowTime(selectedSubject.examStartTime)}. This page
+                    will unlock automatically.
+                  </p>
+                )}
+                {selectedSubject && windowStatus === "closed" && (
+                  <p className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2 mt-1.5 font-semibold leading-relaxed">
+                    <Timer className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+                    The window for this paper closed on{" "}
+                    {formatWindowTime(selectedSubject.examEndTime)}.
+                  </p>
+                )}
+                {selectedSubject &&
+                  windowStatus === "open" &&
+                  selectedSubject.examEndTime && (
+                    <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">
+                      Closes {formatWindowTime(selectedSubject.examEndTime)}.
+                    </p>
+                  )}
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Current Cumulative CGPA (0.00 - 10.00)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="10"
+                  required
+                  value={cgpa}
+                  onChange={(e) => setCgpa(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
+                  placeholder="e.g., 9.12"
+                />
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={starting || windowBlocked}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition uppercase shadow-sm"
+                >
+                  {starting
+                    ? "Preparing Test..."
+                    : windowStatus === "not_started"
+                      ? "Not Yet Open"
+                      : windowStatus === "closed"
+                        ? "Window Closed"
+                        : "Start Test"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => auth.signOut()}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2.5 rounded-lg text-xs tracking-wider transition uppercase text-center border border-slate-200/40"
+                >
+                  ◀ Cancel & Go Back
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -546,13 +790,23 @@ export default function StudentDashboard({ user }) {
             Test Submitted Successfully.
           </h2>
           <p className="text-xs text-slate-500 leading-relaxed font-medium">
-            Your answers and test progress have been securely saved. You may now
-            safely log out and close this window.
+            Your answers and test progress for{" "}
+            <span className="font-bold text-slate-700">
+              {selectedSubject?.name || "this subject"}
+            </span>{" "}
+            have been securely saved. You may now safely log out and close this
+            window.
           </p>
-          <div className="pt-2">
+          <div className="pt-2 space-y-2">
+            <button
+              onClick={startAnotherSubject}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs px-5 py-2.5 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
+            >
+              Take Another Subject
+            </button>
             <button
               onClick={() => auth.signOut()}
-              className="bg-slate-800 hover:bg-slate-900 text-white text-xs px-5 py-2 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
+              className="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs px-5 py-2.5 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
             >
               Log Out & Exit Test
             </button>
@@ -687,6 +941,18 @@ export default function StudentDashboard({ user }) {
 
       <div className="w-full md:w-80 bg-white border-l border-slate-200 p-6 flex flex-col justify-between shadow-sm">
         <div className="space-y-6">
+          <div className="bg-slate-50 border border-slate-200/60 rounded-xl px-4 py-2.5">
+            <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">
+              Active Paper
+            </span>
+            <div className="text-[11px] font-bold text-slate-700 mt-0.5 truncate">
+              {selectedSubject?.name}
+            </div>
+            <div className="text-[9px] text-slate-400 font-medium truncate">
+              {selectedCollege?.name}
+            </div>
+          </div>
+
           <div className="bg-slate-50 border border-slate-200/60 rounded-xl py-3.5 px-4 relative">
             <div className="flex justify-between items-center">
               <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">
@@ -797,7 +1063,7 @@ export default function StudentDashboard({ user }) {
 
             const payload = compileSubmissionPayload(timeLeft);
             try {
-              await addDoc(collection(db, "quiz_attempts"), payload);
+              await saveAttempt(payload);
               setCompleted(true);
               setIsSubmitModalOpen(false);
             } catch (err) {
