@@ -42,6 +42,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Legacy: duration and threshold moved onto each subject, so nothing in the
+    // app reads settings/config any more. Carried over from the live rules
+    // anyway — a student sitting on a stale cached tab of the old build still
+    // calls it on load, and denying it would hard-error their page.
+    match /settings/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     // NOTE: question documents include `correctAnswer`, so a determined student
     // can read the key straight off the network. That is unchanged from the
     // original single-college build; closing it properly needs the answers held
