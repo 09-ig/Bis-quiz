@@ -86,7 +86,7 @@ export default function AuthPortal() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg pl-10 pr-4 py-2 text-sm text-slate-800 outline-none transition"
-                placeholder="name@college.edu"
+                placeholder="you@example.com"
               />
             </div>
           </div>

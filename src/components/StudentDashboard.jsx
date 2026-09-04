@@ -38,6 +38,17 @@ export default function StudentDashboard({ user }) {
   const [starting, setStarting] = useState(false);
   const [nowTick, setNowTick] = useState(Date.now());
 
+  // Each college gets its own link: ?college=<id> pins the institution so a
+  // student cannot pick the wrong one. A bare link with no parameter still
+  // shows the full dropdown, so previously shared links keep working.
+  const [linkedCollegeId] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("college") || "";
+    } catch {
+      return "";
+    }
+  });
+
   const [onboarded, setOnboarded] = useState(false);
 
   const [questions, setQuestions] = useState([]);
@@ -263,6 +274,15 @@ export default function StudentDashboard({ user }) {
 
       if (collegeResult.status === "fulfilled") {
         setColleges(collegeResult.value);
+        // Only honour the link's college if it is real and currently live —
+        // a stale or hidden id falls back to the dropdown rather than
+        // stranding the student on an empty locked field.
+        if (
+          linkedCollegeId &&
+          collegeResult.value.some((c) => c.id === linkedCollegeId)
+        ) {
+          setCollegeId(linkedCollegeId);
+        }
       } else {
         console.error(
           "Failed to load institution registry:",
@@ -284,7 +304,7 @@ export default function StudentDashboard({ user }) {
     return () => {
       cancelled = true;
     };
-  }, [user.uid]);
+  }, [user.uid, linkedCollegeId]);
 
   // Subject list is scoped to the chosen college
   useEffect(() => {
@@ -418,6 +438,10 @@ export default function StudentDashboard({ user }) {
 
   const selectedCollege = colleges.find((c) => c.id === collegeId);
   const selectedSubject = subjects.find((s) => s.id === subjectId);
+
+  // Locked only once the linked college has resolved to a live institution.
+  const collegeLocked =
+    Boolean(linkedCollegeId) && collegeId === linkedCollegeId && Boolean(selectedCollege);
 
   // The entry window now lives on the subject, so it is evaluated per paper
   // rather than once globally.
@@ -655,19 +679,28 @@ export default function StudentDashboard({ user }) {
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                   Institution
                 </label>
-                <select
-                  required
-                  value={collegeId}
-                  onChange={(e) => setCollegeId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
-                >
-                  <option value="">Select your college...</option>
-                  {colleges.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                {collegeLocked ? (
+                  <input
+                    type="text"
+                    value={selectedCollege?.name || ""}
+                    readOnly
+                    className="w-full bg-slate-100 border border-slate-200 rounded-lg p-2.5 text-xs text-slate-600 font-semibold outline-none cursor-not-allowed"
+                  />
+                ) : (
+                  <select
+                    required
+                    value={collegeId}
+                    onChange={(e) => setCollegeId(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
+                  >
+                    <option value="">Select your college...</option>
+                    {colleges.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {colleges.length === 0 && (
                   <p className="text-[10px] text-rose-600 font-semibold mt-1">
                     No institutions are open right now. Contact the

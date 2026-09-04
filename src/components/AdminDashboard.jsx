@@ -54,6 +54,7 @@ export default function AdminDashboard() {
   const [renamingCollegeId, setRenamingCollegeId] = useState(null);
   const [renamingSubjectId, setRenamingSubjectId] = useState(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [copiedCollegeId, setCopiedCollegeId] = useState("");
 
   const [totalTime, setTotalTime] = useState(
     DEFAULT_SUBJECT_SETTINGS.totalTimeAllowed,
@@ -123,6 +124,23 @@ export default function AdminDashboard() {
       setLegacyQuestions(await fetchUnassignedQuestions());
     } catch (err) {
       console.error("Failed to scan for unassigned questions:", err);
+    }
+  };
+
+  // The link to hand one college. ?college=<id> pins the institution on the
+  // student's side so nobody can sit under the wrong college by mistake.
+  const studentLinkFor = (id) => `${window.location.origin}/?college=${id}`;
+
+  const handleCopyLink = async (college) => {
+    const link = studentLinkFor(college.id);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedCollegeId(college.id);
+      setTimeout(() => setCopiedCollegeId(""), 2000);
+    } catch {
+      // Clipboard access can be refused (permissions, non-secure origin) —
+      // fall back to showing the link so it can still be copied by hand.
+      window.prompt(`Copy the link for ${college.name}:`, link);
     }
   };
 
@@ -604,6 +622,13 @@ export default function AdminDashboard() {
                             className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border ${c.active === false ? "bg-slate-100 text-slate-400 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}`}
                           >
                             {c.active === false ? "Hidden" : "Live"}
+                          </button>
+                          <button
+                            onClick={() => handleCopyLink(c)}
+                            title={`Copy the student link for ${c.name}`}
+                            className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border transition ${copiedCollegeId === c.id ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-white text-slate-500 border-slate-200 hover:text-blue-600 hover:border-blue-300"}`}
+                          >
+                            {copiedCollegeId === c.id ? "Copied" : "Link"}
                           </button>
                           <button
                             onClick={() => {
