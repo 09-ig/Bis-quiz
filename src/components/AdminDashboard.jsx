@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { auth } from "../config/firebase";
 import {
-  assignQuestionsToSubject,
   createCollege,
   createSubject,
   deleteSubject,
   fetchColleges,
   fetchQuestionsForSubject,
   fetchSubjects,
-  fetchUnassignedQuestions,
   publishQuestions,
   updateCollege,
   updateSubject,
@@ -28,7 +26,6 @@ import {
   Building2,
   BookOpen,
   Settings2,
-  ArrowRightLeft,
 } from "lucide-react";
 
 // Converts a stored ISO timestamp into the local "YYYY-MM-DDTHH:mm" value
@@ -71,7 +68,6 @@ export default function AdminDashboard() {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(false); // Defaulting to false so it doesn't force a pre-auth load screen
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [legacyQuestions, setLegacyQuestions] = useState([]);
 
   const [qText, setQText] = useState("");
   const [options, setOptions] = useState(["", "", "", ""]);
@@ -98,7 +94,6 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (auth.currentUser) {
       refreshColleges();
-      refreshLegacyQuestions();
     }
   }, []);
 
@@ -116,14 +111,6 @@ export default function AdminDashboard() {
       setSubjects(await fetchSubjects(cid));
     } catch (err) {
       console.error("Failed to load subject registry:", err);
-    }
-  };
-
-  const refreshLegacyQuestions = async () => {
-    try {
-      setLegacyQuestions(await fetchUnassignedQuestions());
-    } catch (err) {
-      console.error("Failed to scan for unassigned questions:", err);
     }
   };
 
@@ -258,27 +245,6 @@ export default function AdminDashboard() {
       await refreshSubjects(collegeId);
     } catch (err) {
       alert("Could not delete subject: " + err.message);
-    }
-  };
-
-  const handleImportLegacyQuestions = async () => {
-    if (!subjectId) return;
-    if (
-      !window.confirm(
-        `Move ${legacyQuestions.length} pre-existing question(s) into "${selectedSubject?.name}"? They currently belong to no subject and are invisible to students.`,
-      )
-    )
-      return;
-    try {
-      await assignQuestionsToSubject(
-        legacyQuestions.map((q) => q.id),
-        collegeId,
-        subjectId,
-      );
-      await refreshLegacyQuestions();
-      setQuestions(await fetchQuestionsForSubject(subjectId));
-    } catch (err) {
-      alert("Import failed: " + err.message);
     }
   };
 
@@ -755,26 +721,6 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
-
-        {/* LEGACY MIGRATION BANNER — questions written before subjects existed */}
-        {legacyQuestions.length > 0 && (
-          <div className="bg-sky-50 border border-sky-200 text-sky-900 p-3 rounded-xl text-[11px] flex justify-between items-center gap-4">
-            <span className="font-semibold">
-              {legacyQuestions.length} question(s) from the original single-college
-              quiz have no subject assigned, so no student can see them.
-              {scopeReady
-                ? ` Move them into "${selectedSubject?.name}"?`
-                : " Select a college and subject above to file them."}
-            </span>
-            <button
-              onClick={handleImportLegacyQuestions}
-              disabled={!scopeReady}
-              className="shrink-0 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition uppercase tracking-wider text-[10px] font-bold"
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5" /> Move Into Subject
-            </button>
-          </div>
-        )}
 
         {!scopeReady ? (
           <div className="bg-white border border-dashed border-slate-300 rounded-xl p-10 text-center shadow-sm">
