@@ -645,7 +645,7 @@ export default function StudentDashboard({ user }) {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg p-2.5 text-xs text-slate-800 outline-none transition"
-                  placeholder="e.g., Ishita Gupta"
+                  placeholder="e.g., John Doe"
                 />
               </div>
 
