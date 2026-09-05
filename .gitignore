@@ -72,3 +72,8 @@ serviceAccountKey.json
 
 Quiz_Attempts_Report.xlsx
 ~$Quiz_Attempts_Report.xlsx
+
+# Exported student data — keep local, never commit
+*.xlsx
+*.csv
+~$*.xlsx
