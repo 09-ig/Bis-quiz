@@ -10,12 +10,13 @@ import { getFirestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDJZ0aa9hJMFqA-lPxwGR5Ouc0Jb7VEnG0",
-  authDomain: "academic-quiz-26.firebaseapp.com",
-  projectId: "academic-quiz-26",
-  storageBucket: "academic-quiz-26.firebasestorage.app",
-  messagingSenderId: "372532334013",
-  appId: "1:372532334013:web:a8a787f8aed25fc585d6d4",
+  apiKey: "AIzaSyCHY0S_eKdH9_MuuY3por1tgGPX3ncVhu8",
+  authDomain: "bis-college.firebaseapp.com",
+  projectId: "bis-college",
+  storageBucket: "bis-college.firebasestorage.app",
+  messagingSenderId: "85744330778",
+  appId: "1:85744330778:web:1233280ea991934aac09a3",
+  measurementId: "G-RRPVVM0QJT"
 };
 
 // Initialize Firebase

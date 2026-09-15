@@ -20,6 +20,8 @@ import {
   Trophy,
   Gauge,
   LogOut,
+  Check,
+  X,
 } from "lucide-react";
 
 export default function StudentDashboard({ user }) {
@@ -815,34 +817,100 @@ export default function StudentDashboard({ user }) {
   }
 
   if (completed) {
+    const score = questions.reduce((acc, q) => acc + (answers[q.id] === q.correctAnswer ? 1 : 0), 0);
+    const selectedSubject = subjects.find((s) => s.id === subjectId);
+
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-center select-none">
-        <div className="max-w-md bg-white border border-slate-200 rounded-xl p-8 space-y-4 shadow-sm">
-          <Trophy className="w-12 h-12 text-emerald-500 mx-auto" />
-          <h2 className="text-base font-bold text-slate-800 uppercase tracking-wide">
-            Test Submitted Successfully.
-          </h2>
-          <p className="text-xs text-slate-500 leading-relaxed font-medium">
-            Your answers and test progress for{" "}
-            <span className="font-bold text-slate-700">
-              {selectedSubject?.name || "this subject"}
-            </span>{" "}
-            have been securely saved. You may now safely log out and close this
-            window.
-          </p>
-          <div className="pt-2 space-y-2">
-            <button
-              onClick={startAnotherSubject}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs px-5 py-2.5 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
-            >
-              Take Another Subject
-            </button>
-            <button
-              onClick={() => auth.signOut()}
-              className="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs px-5 py-2.5 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
-            >
-              Log Out & Exit Test
-            </button>
+      <div className="min-h-screen bg-slate-50 p-4 select-none pb-20 overflow-y-auto">
+        <div className="max-w-2xl mx-auto space-y-6 mt-10">
+          <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-4 shadow-sm text-center">
+            <Trophy className="w-12 h-12 text-emerald-500 mx-auto" />
+            <h2 className="text-base font-bold text-slate-800 uppercase tracking-wide">
+              Test Submitted Successfully.
+            </h2>
+            
+            <div className="py-4">
+              <div className="text-3xl font-black text-blue-600 tracking-tight">
+                {score} <span className="text-xl text-slate-400 font-bold mx-1">/</span> {questions.length}
+              </div>
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">
+                Final Score
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed font-medium">
+              Your answers and test progress for{" "}
+              <span className="font-bold text-slate-700">
+                {selectedSubject?.name || "this subject"}
+              </span>{" "}
+              have been securely saved.
+            </p>
+            <div className="pt-2 space-y-2 max-w-sm mx-auto">
+              <button
+                onClick={startAnotherSubject}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs px-5 py-2.5 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
+              >
+                Take Another Subject
+              </button>
+              <button
+                onClick={() => auth.signOut()}
+                className="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs px-5 py-2.5 rounded-lg transition font-bold uppercase tracking-wider shadow-sm"
+              >
+                Log Out & Exit Test
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-3 mb-4">
+              Detailed Question Review
+            </h3>
+            <div className="space-y-4">
+              {questions.map((q, i) => {
+                const chosen = answers[q.id];
+                const isCorrect = chosen === q.correctAnswer;
+                return (
+                  <div key={q.id} className={`p-4 rounded-xl border space-y-3 ${isCorrect ? "bg-emerald-50/30 border-emerald-100" : "bg-rose-50/30 border-rose-100"}`}>
+                    <div className="flex gap-3">
+                      <div className="mt-0.5 shrink-0">
+                        {isCorrect ? (
+                          <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+                            <Check className="w-3.5 h-3.5" />
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
+                            <X className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-3 w-full">
+                        <p className="text-sm font-semibold text-slate-800 leading-snug">
+                          <span className="text-slate-400 font-mono mr-1">{i + 1}.</span> {q.text}
+                        </p>
+                        
+                        <div className="grid sm:grid-cols-2 gap-2 text-xs">
+                          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">Your Answer</div>
+                            <div className={`font-medium ${!chosen ? "text-slate-400 italic" : (isCorrect ? "text-emerald-700" : "text-rose-700")}`}>
+                              {chosen || "Not Answered"}
+                            </div>
+                          </div>
+                          
+                          {!isCorrect && (
+                            <div className="bg-white p-2.5 rounded-lg border border-emerald-100 bg-emerald-50/50">
+                              <div className="text-[10px] uppercase font-bold text-emerald-600/70 tracking-wider mb-1">Correct Answer</div>
+                              <div className="font-medium text-emerald-700">
+                                {q.correctAnswer}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
